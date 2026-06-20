@@ -1,0 +1,18 @@
+# Dati generati e file di lavoro
+dati/
+export/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Impostazioni locali Claude Code
+.claude/
+import_imprese/
+
+# Build PyInstaller
+build/
+dist/
+*.spec
