@@ -164,3 +164,7 @@ scostamento        = avanzamento_reale - avanzamento_atteso
 Uno scostamento negativo indica un'impresa **in ritardo**. L'avanzamento
 globale del cantiere è la media degli avanzamenti dei lotti, pesata sui
 rispettivi importi di contratto.
+
+## Licenza
+
+Questo progetto è open source.
