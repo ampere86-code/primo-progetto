@@ -11,3 +11,7 @@ Questo progetto è il punto di partenza del mio percorso su GitHub.
 1. Clona il repository
 2. Esplora i file
 3. Contribuisci!
+
+## Licenza
+
+Questo progetto è open source.
