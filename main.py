@@ -9,7 +9,26 @@ generato in  export/cronoprogramma.xlsx
 
 from __future__ import annotations
 
+import os
+import sys
 from datetime import date
+
+
+def _cartella_base() -> str:
+    """Cartella in cui salvare dati/ ed export/.
+
+    Se il programma gira come .exe (PyInstaller), usa la cartella che contiene
+    l'eseguibile; altrimenti la cartella del progetto. Così i file generati
+    stanno sempre accanto al programma, indipendentemente da dove viene avviato.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+# porta la cartella di lavoro accanto al programma (così i percorsi relativi
+# dati/ ed export/ puntano sempre lì)
+os.chdir(_cartella_base())
 
 from cronocantieri.analisi import analizza_cantiere
 from cronocantieri.esporta_excel import esporta, genera_modello_cantiere

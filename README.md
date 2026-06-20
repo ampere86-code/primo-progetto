@@ -103,6 +103,36 @@ quindi tollera piccole variazioni di nome e posizione. La colonna
 **Avanzamento %** può essere lasciata vuota: in tal caso la percentuale
 viene stimata dalle date.
 
+## Versione installabile (.exe, senza Python)
+
+È possibile generare un eseguibile autonomo che funziona anche su PC dove
+Python non è installato.
+
+Per costruirlo (serve Python solo su questa macchina):
+
+```bash
+costruisci_exe.bat
+```
+
+oppure manualmente:
+
+```bash
+pip install -r requirements.txt pyinstaller
+pyinstaller --onefile --name Cronocantieri --collect-all pdfplumber --collect-all pdfminer --collect-all openpyxl main.py
+```
+
+L'eseguibile viene creato in `dist\Cronocantieri.exe`.
+
+**Come usarlo sull'altro PC:**
+
+1. Copia `Cronocantieri.exe` in una cartella a tua scelta (es. una nuova
+   cartella `Cronocantieri` sul Desktop).
+2. Fai doppio clic per avviarlo: si apre la finestra con il menu.
+3. I file generati (`dati\`, `export\`) vengono creati **accanto
+   all'eseguibile**, nella sua stessa cartella.
+
+Non serve installare Python né altre librerie sull'altro PC.
+
 ## Struttura del progetto
 
 ```
