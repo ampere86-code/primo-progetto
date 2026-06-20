@@ -56,6 +56,49 @@ class SAL:
 
 
 @dataclass
+class Attivita:
+    """Singola lavorazione/voce di un cronoprogramma di lotto.
+
+    È il livello di dettaglio inviato dalle imprese: ogni riga del loro
+    cronoprogramma (es. "Scavi", "Getto fondazioni", "Posa quadri") con le
+    proprie date, l'importo (peso) e, se nota, la % di completamento.
+    """
+
+    nome: str
+    data_inizio: date | None = None
+    data_fine: date | None = None
+    importo: float = 0.0                 # peso dell'attività (euro)
+    avanzamento_pct: float | None = None  # None = non dichiarata (si stima dalle date)
+    note: str = ""
+
+    def durata_giorni(self) -> int:
+        if self.data_inizio and self.data_fine and self.data_fine > self.data_inizio:
+            return (self.data_fine - self.data_inizio).days
+        return 0
+
+    def to_dict(self) -> dict:
+        return {
+            "nome": self.nome,
+            "data_inizio": _format_date(self.data_inizio),
+            "data_fine": _format_date(self.data_fine),
+            "importo": self.importo,
+            "avanzamento_pct": self.avanzamento_pct,
+            "note": self.note,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Attivita":
+        return cls(
+            nome=d["nome"],
+            data_inizio=_parse_date(d.get("data_inizio")),
+            data_fine=_parse_date(d.get("data_fine")),
+            importo=d.get("importo", 0.0),
+            avanzamento_pct=d.get("avanzamento_pct"),
+            note=d.get("note", ""),
+        )
+
+
+@dataclass
 class Lotto:
     """Porzione di cantiere affidata a una singola impresa.
 
@@ -70,9 +113,10 @@ class Lotto:
     data_inizio: date | None = None
     data_fine_prevista: date | None = None
     importo_contratto: float = 0.0  # importo del lotto (euro), usato come peso
-    avanzamento_pct: float = 0.0    # % attuale di avanzamento
+    avanzamento_pct: float = 0.0    # % attuale (manuale o ricalcolata dalle attività)
     note: str = ""
     sal: list[SAL] = field(default_factory=list)
+    attivita: list[Attivita] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -86,6 +130,7 @@ class Lotto:
             "avanzamento_pct": self.avanzamento_pct,
             "note": self.note,
             "sal": [s.to_dict() for s in self.sal],
+            "attivita": [a.to_dict() for a in self.attivita],
         }
 
     @classmethod
@@ -101,6 +146,7 @@ class Lotto:
             avanzamento_pct=d.get("avanzamento_pct", 0.0),
             note=d.get("note", ""),
             sal=[SAL.from_dict(s) for s in d.get("sal", [])],
+            attivita=[Attivita.from_dict(a) for a in d.get("attivita", [])],
         )
 
     def ultimo_sal(self) -> SAL | None:
@@ -108,6 +154,12 @@ class Lotto:
         if not self.sal:
             return None
         return max(self.sal, key=lambda s: s.numero)
+
+    def date_estremi_attivita(self) -> tuple[date | None, date | None]:
+        """Data minima di inizio e massima di fine fra le attività del lotto."""
+        inizi = [a.data_inizio for a in self.attivita if a.data_inizio]
+        fini = [a.data_fine for a in self.attivita if a.data_fine]
+        return (min(inizi) if inizi else None, max(fini) if fini else None)
 
 
 @dataclass

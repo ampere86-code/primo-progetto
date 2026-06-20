@@ -12,8 +12,9 @@ from __future__ import annotations
 from datetime import date
 
 from cronocantieri.analisi import analizza_cantiere
-from cronocantieri.esporta_excel import esporta
+from cronocantieri.esporta_excel import esporta, genera_template_impresa
 from cronocantieri.models import SAL, Archivio, Cantiere, Lotto
+from cronocantieri.unisci import unisci_cronoprogrammi
 
 
 # ---------------------------------------------------------------- input utili
@@ -189,6 +190,51 @@ def mostra_analisi(archivio: Archivio) -> None:
         )
 
 
+def importa_da_imprese(archivio: Archivio) -> None:
+    print("\n--- IMPORTA CRONOPROGRAMMI IMPRESE (Excel/PDF) ---")
+    print("Inserisci i percorsi dei file, uno per riga. Riga vuota per terminare.")
+    print("(Puoi trascinare il file nella finestra per incollarne il percorso.)")
+    percorsi: list[str] = []
+    while True:
+        p = input(f"  File {len(percorsi) + 1}: ").strip().strip('"')
+        if not p:
+            break
+        percorsi.append(p)
+    if not percorsi:
+        print("  Nessun file indicato.")
+        return
+    nome = chiedi("Nome cantiere [vuoto = leggi dai file]: ", obbligatorio=False)
+    committente = chiedi("Committente: ", obbligatorio=False)
+    try:
+        cantiere, importati = unisci_cronoprogrammi(
+            percorsi, cantiere_nome=nome or None, committente=committente
+        )
+    except Exception as e:  # errori di lettura/formato
+        print(f"  ! Errore durante l'import: {e}")
+        return
+
+    if archivio.trova(cantiere.nome):
+        print(f"  ! Esiste già un cantiere '{cantiere.nome}'. Rinominalo e riprova.")
+        return
+    try:
+        archivio.aggiungi_cantiere(cantiere)
+    except ValueError as e:
+        print(f"  ! {e}")
+        return
+    archivio.salva()
+    print(f"\n  Cantiere '{cantiere.nome}' creato unendo {len(importati)} file:")
+    for imp in importati:
+        print(f"    - {imp.file_origine}: {imp.lotto.impresa} "
+              f"({imp.righe_lette} attività)")
+    print("  Usa la voce 5) per vedere l'analisi con gli avanzamenti calcolati.")
+
+
+def genera_modello(archivio: Archivio) -> None:
+    percorso = genera_template_impresa()
+    print(f"  Modello per le imprese generato: {percorso.resolve()}")
+    print("  Invialo alle imprese: una volta compilato, importalo con la voce 8).")
+
+
 def esporta_excel(archivio: Archivio) -> None:
     if not archivio.cantieri:
         print("  Nessun cantiere da esportare.")
@@ -210,6 +256,8 @@ MENU = """
   5) Analisi cantiere (ritardi)
   6) Esporta in Excel (con Gantt)
   7) Elenco cantieri
+  8) Importa cronoprogrammi imprese (Excel/PDF) e crea cantiere
+  9) Genera modello Excel da inviare alle imprese
   0) Esci
 """
 
@@ -234,6 +282,8 @@ def main() -> None:
         "5": mostra_analisi,
         "6": esporta_excel,
         "7": elenco,
+        "8": importa_da_imprese,
+        "9": genera_modello,
     }
     while True:
         print(MENU)

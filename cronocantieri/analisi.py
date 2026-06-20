@@ -28,7 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from .models import Cantiere, Lotto
+from .models import Attivita, Cantiere, Lotto
 
 
 @dataclass
@@ -76,6 +76,48 @@ class StatoCantiere:
         return min(self.stati_lotti, key=lambda s: s.scostamento)
 
 
+def _avanzamento_atteso_periodo(
+    inizio: date | None, fine: date | None, alla_data: date
+) -> float:
+    """% attesa fra due date (progresso lineare). 0 se date mancanti/non valide."""
+    if not inizio or not fine or fine <= inizio:
+        return 0.0
+    if alla_data <= inizio:
+        return 0.0
+    if alla_data >= fine:
+        return 100.0
+    return round((alla_data - inizio).days / (fine - inizio).days * 100, 1)
+
+
+def avanzamento_da_attivita(lotto: Lotto, alla_data: date) -> float | None:
+    """Calcola la % del lotto a partire dalle sue attività.
+
+    Per ogni attività usa la % dichiarata, se presente; altrimenti la stima
+    dalle date (progresso lineare). Le attività sono pesate sull'importo;
+    se gli importi non sono disponibili, si usa la durata in giorni; in
+    mancanza anche di quella, media semplice.
+
+    Restituisce None se il lotto non ha attività (così l'analisi ricade
+    sulla % manuale del lotto).
+    """
+    att = lotto.attivita
+    if not att:
+        return None
+
+    pesi = [a.importo for a in att]
+    if sum(pesi) <= 0:
+        pesi = [a.durata_giorni() or 1 for a in att]
+    totale = sum(pesi) or len(att)
+
+    somma = 0.0
+    for a, peso in zip(att, pesi):
+        av = a.avanzamento_pct
+        if av is None:  # non dichiarata: stima dalle date
+            av = _avanzamento_atteso_periodo(a.data_inizio, a.data_fine, alla_data)
+        somma += av * peso
+    return round(somma / totale, 1)
+
+
 def avanzamento_atteso(lotto: Lotto, alla_data: date) -> float:
     """% di avanzamento attesa per il lotto alla data indicata (0-100).
 
@@ -98,7 +140,10 @@ def analizza_lotto(lotto: Lotto, alla_data: date | None = None) -> StatoLotto:
     """Calcola lo stato di avanzamento di un singolo lotto."""
     alla_data = alla_data or date.today()
     atteso = avanzamento_atteso(lotto, alla_data)
-    reale = lotto.avanzamento_pct
+    # se il lotto ha attività, la % reale è calcolata da esse; altrimenti
+    # si usa la % impostata manualmente sul lotto.
+    da_attivita = avanzamento_da_attivita(lotto, alla_data)
+    reale = da_attivita if da_attivita is not None else lotto.avanzamento_pct
     scostamento = round(reale - atteso, 1)
     ultimo = lotto.ultimo_sal()
     return StatoLotto(

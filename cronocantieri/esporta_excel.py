@@ -153,6 +153,54 @@ def _nome_foglio(nome_cantiere: str, suffisso: str) -> str:
     return base[:31]
 
 
+def genera_template_impresa(percorso: str | Path = "export/modello_impresa.xlsx") -> Path:
+    """Crea un modello Excel vuoto che le imprese possono compilare e inviare.
+
+    Il file ha le celle dei metadati (Cantiere, Impresa, Lotto, ...) e la
+    tabella delle attività con le intestazioni riconosciute dall'import.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Cronoprogramma"
+
+    etichette = [
+        ("Cantiere:", ""),
+        ("Impresa:", ""),
+        ("Lotto:", ""),
+        ("Categoria:", ""),
+        ("Responsabile:", ""),
+        ("Importo lotto:", ""),
+    ]
+    for i, (et, val) in enumerate(etichette, start=1):
+        ws.cell(row=i, column=1, value=et).font = _BOLD
+        ws.cell(row=i, column=2, value=val)
+
+    r0 = len(etichette) + 2
+    intestazioni = ["Attività", "Data inizio", "Data fine", "Importo €", "Avanzamento %"]
+    for c, testo in enumerate(intestazioni, start=1):
+        cell = ws.cell(row=r0, column=c, value=testo)
+        cell.fill = _INTESTAZIONE
+        cell.font = _BIANCO_BOLD
+        cell.border = _BORDO
+    # righe di esempio (da sostituire)
+    esempi = [
+        ("Esempio - Scavi e fondazioni", "2026-01-07", "2026-02-28", 120000, 100),
+        ("Esempio - Struttura", "2026-03-01", "2026-05-31", 300000, 40),
+        ("Esempio - Finiture", "2026-06-01", "2026-07-31", 80000, 0),
+    ]
+    for i, riga in enumerate(esempi, start=1):
+        for c, val in enumerate(riga, start=1):
+            ws.cell(row=r0 + i, column=c, value=val).border = _BORDO
+
+    for c, larg in enumerate([34, 14, 14, 14, 14], start=1):
+        ws.column_dimensions[get_column_letter(c)].width = larg
+
+    percorso = Path(percorso)
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(percorso)
+    return percorso
+
+
 def esporta(archivio: Archivio, percorso: str | Path = "export/cronoprogramma.xlsx",
             alla_data: date | None = None) -> Path:
     """Genera il file Excel con un foglio Riepilogo + Gantt per ogni cantiere."""

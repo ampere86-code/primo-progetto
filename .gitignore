@@ -10,3 +10,4 @@ venv/
 
 # Impostazioni locali Claude Code
 .claude/
+import_imprese/
