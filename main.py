@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date
 
 from cronocantieri.analisi import analizza_cantiere
-from cronocantieri.esporta_excel import esporta, genera_template_impresa
+from cronocantieri.esporta_excel import esporta, genera_modello_cantiere
 from cronocantieri.models import SAL, Archivio, Cantiere, Lotto
 from cronocantieri.unisci import unisci_cronoprogrammi
 
@@ -230,9 +230,18 @@ def importa_da_imprese(archivio: Archivio) -> None:
 
 
 def genera_modello(archivio: Archivio) -> None:
-    percorso = genera_template_impresa()
-    print(f"  Modello per le imprese generato: {percorso.resolve()}")
-    print("  Invialo alle imprese: una volta compilato, importalo con la voce 8).")
+    print("\n--- GENERA MODELLO EXCEL PRECOMPILATO PER LE IMPRESE ---")
+    nome = chiedi("Nome cantiere: ")
+    committente = chiedi("Committente: ", obbligatorio=False)
+    cup = chiedi("CUP: ", obbligatorio=False)
+    cig = chiedi("CIG: ", obbligatorio=False)
+    percorso = genera_modello_cantiere(
+        cantiere_nome=nome, committente=committente, cup=cup, cig=cig
+    )
+    print(f"\n  Modello precompilato generato: {percorso.resolve()}")
+    print("  Riferimenti cantiere e attività standard sono già inseriti.")
+    print("  Invialo a ogni impresa: compilerà date/importi/% e indicherà il")
+    print("  Lotto/Commessa. Poi importa i file ricevuti con la voce 8).")
 
 
 def esporta_excel(archivio: Archivio) -> None:

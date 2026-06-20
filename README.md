@@ -60,13 +60,18 @@ Voci del menu:
 
 ### Flusso tipico del project manager
 
-1. Voce **9**: genera il modello Excel e invialo alle imprese.
-2. Le imprese compilano il file (attività, date, importi, % avanzamento)
-   e lo restituiscono in Excel o PDF.
+1. Voce **9**: genera il **modello Excel precompilato** (riferimenti cantiere
+   e attività standard già inseriti) e invialo a ogni impresa.
+2. Ogni impresa compila date/importi/% per le attività e indica il
+   **Lotto / Commessa**, poi restituisce il file in Excel o PDF.
 3. Voce **8**: carica gli n file ricevuti. Il sistema li unisce nel
    cronoprogramma totale del cantiere e calcola le percentuali.
 4. Voce **5**: analizza ritardi e avanzamento globale.
-5. Voce **6**: esporta tutto in Excel con il Gantt.
+5. Voce **6**: esporta l'Excel per la stazione appaltante. Contiene tre fogli:
+   - **Riepilogo**: andamento per lotto/impresa;
+   - **Cronoprogramma generale**: tutti i lotti con il dettaglio delle
+     attività e il Gantt mensile colorato per ritardo;
+   - **Gantt**: vista sintetica per lotto.
 
 ### Provare subito con dati di esempio
 

@@ -321,6 +321,11 @@ def importa_file(percorso: str | Path) -> CronoprogrammaImportato:
             i = mappa.get(campo)
             return riga[i] if i is not None and i < len(riga) else None
 
+        # una riga completamente vuota separa la tabella da eventuali note in
+        # fondo: dopo aver letto almeno un'attività, la consideriamo fine tabella.
+        if all(not _testo(cella(campo)) for campo in mappa) and attivita:
+            break
+
         nome = _testo(cella("nome"))
         if not nome:
             continue

@@ -17,7 +17,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from .analisi import StatoCantiere, analizza_cantiere
+from .analisi import (
+    StatoCantiere,
+    _avanzamento_atteso_periodo,
+    analizza_cantiere,
+)
 from .models import Archivio, Cantiere
 
 # Colori (esadecimale ARGB) usati nelle barre del Gantt
@@ -26,6 +30,9 @@ _GIALLO = PatternFill("solid", fgColor="FFD666")
 _ROSSO = PatternFill("solid", fgColor="F8696B")
 _GRIGIO = PatternFill("solid", fgColor="D9D9D9")
 _INTESTAZIONE = PatternFill("solid", fgColor="305496")
+_SOTTOTESTA = PatternFill("solid", fgColor="8EAADB")   # intestazione di lotto
+_DA_COMPILARE = PatternFill("solid", fgColor="FFF2CC")  # celle che l'impresa compila
+_PRECOMPILATO = PatternFill("solid", fgColor="E2EFDA")  # celle gia' compilate dal PM
 
 _BORDO = Border(*(Side(style="thin", color="BFBFBF"),) * 4)
 _BIANCO_BOLD = Font(bold=True, color="FFFFFF")
@@ -146,6 +153,134 @@ def _foglio_gantt(wb: Workbook, stato: StatoCantiere) -> None:
         ws.cell(row=rl + 1 + j, column=2).fill = fill
 
 
+def _mesi_tra(inizio: date, fine: date) -> list[tuple[int, int]]:
+    """Lista di (anno, mese) dal mese di inizio a quello di fine, inclusi."""
+    mesi = []
+    a, m = inizio.year, inizio.month
+    while (a, m) <= (fine.year, fine.month):
+        mesi.append((a, m))
+        m += 1
+        if m > 12:
+            m, a = 1, a + 1
+    return mesi
+
+
+def _foglio_cronoprogramma_generale(wb: Workbook, stato: StatoCantiere,
+                                    alla_data: date) -> None:
+    """Foglio per la stazione appaltante: tutti i lotti/imprese con il
+    dettaglio delle attività e un Gantt mensile colorato per ritardo.
+    """
+    ws = wb.create_sheet(title=_nome_foglio(stato.cantiere.nome, "Cronoprog"))
+    c = stato.cantiere
+
+    ws["A1"] = f"CRONOPROGRAMMA GENERALE - {c.nome}"
+    ws["A1"].font = Font(bold=True, size=14)
+    ws["A2"] = (f"Committente: {c.committente}   Tipo: {c.tipo}   "
+                f"Aggiornato al {alla_data.strftime('%d/%m/%Y')}")
+    ws["A3"] = (f"Avanzamento globale: {stato.avanzamento_globale_reale}% "
+                f"(atteso {stato.avanzamento_globale_atteso}%)  "
+                f"scostamento {stato.scostamento_globale:+}%")
+    ws["A3"].font = _BOLD
+
+    # intervallo temporale complessivo (da tutte le attività)
+    tutte_inizio, tutte_fine = [], []
+    for s in stato.stati_lotti:
+        for a in s.lotto.attivita:
+            if a.data_inizio:
+                tutte_inizio.append(a.data_inizio)
+            if a.data_fine:
+                tutte_fine.append(a.data_fine)
+    # ricade sulle date di lotto se non ci sono attività datate
+    for s in stato.stati_lotti:
+        if s.lotto.data_inizio:
+            tutte_inizio.append(s.lotto.data_inizio)
+        if s.lotto.data_fine_prevista:
+            tutte_fine.append(s.lotto.data_fine_prevista)
+    if not tutte_inizio or not tutte_fine:
+        ws["A5"] = "Date non sufficienti per generare il Gantt."
+        return
+    mesi = _mesi_tra(min(tutte_inizio), max(tutte_fine))
+
+    col_base = 6  # 5 colonne descrittive prima del Gantt
+    r_head = 5
+    intestazioni = ["Lotto / Attività", "Impresa", "Inizio", "Fine", "Avanz. %"]
+    for i, testo in enumerate(intestazioni, start=1):
+        cell = ws.cell(row=r_head, column=i, value=testo)
+        cell.fill = _INTESTAZIONE
+        cell.font = _BIANCO_BOLD
+        cell.border = _BORDO
+    nomi_mesi = ["gen", "feb", "mar", "apr", "mag", "giu",
+                 "lug", "ago", "set", "ott", "nov", "dic"]
+    for k, (anno, mese) in enumerate(mesi):
+        cell = ws.cell(row=r_head, column=col_base + k,
+                       value=f"{nomi_mesi[mese - 1]}\n{str(anno)[2:]}")
+        cell.fill = _INTESTAZIONE
+        cell.font = _BIANCO_BOLD
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(col_base + k)].width = 5
+
+    def indice_mese(d: date) -> int:
+        return mesi.index((d.year, d.month)) if (d.year, d.month) in mesi else -1
+
+    riga = r_head + 1
+    for s in stato.stati_lotti:
+        l = s.lotto
+        # riga di intestazione del lotto (impresa)
+        ws.cell(row=riga, column=1,
+                value=f"{l.nome}").font = _BOLD
+        for col in range(1, 5):
+            ws.cell(row=riga, column=col).fill = _SOTTOTESTA
+        ws.cell(row=riga, column=2, value=l.impresa).font = _BOLD
+        ws.cell(row=riga, column=5,
+                value=f"{s.avanzamento_reale}%").fill = _colore_per_scostamento(
+            s.scostamento)
+        # barra di sintesi del lotto sull'intera durata
+        if l.data_inizio and l.data_fine_prevista:
+            i0, i1 = indice_mese(l.data_inizio), indice_mese(l.data_fine_prevista)
+            for k in range(i0, i1 + 1):
+                if k >= 0:
+                    ws.cell(row=riga, column=col_base + k).fill = _SOTTOTESTA
+        riga += 1
+
+        # righe di dettaglio: ogni attività del lotto
+        for a in l.attivita:
+            ws.cell(row=riga, column=1, value=f"   {a.nome}").border = _BORDO
+            ws.cell(row=riga, column=2, value=l.impresa).border = _BORDO
+            if a.data_inizio:
+                ws.cell(row=riga, column=3,
+                        value=a.data_inizio.strftime("%d/%m/%y")).border = _BORDO
+            if a.data_fine:
+                ws.cell(row=riga, column=4,
+                        value=a.data_fine.strftime("%d/%m/%y")).border = _BORDO
+            atteso = _avanzamento_atteso_periodo(a.data_inizio, a.data_fine, alla_data)
+            reale = a.avanzamento_pct if a.avanzamento_pct is not None else atteso
+            ws.cell(row=riga, column=5, value=round(reale, 1)).border = _BORDO
+            colore = _colore_per_scostamento(round(reale - atteso, 1))
+            if a.data_inizio and a.data_fine:
+                i0, i1 = indice_mese(a.data_inizio), indice_mese(a.data_fine)
+                for k in range(i0, i1 + 1):
+                    if k >= 0:
+                        cell = ws.cell(row=riga, column=col_base + k)
+                        cell.fill = colore
+                        cell.border = _BORDO
+            riga += 1
+
+    ws.column_dimensions["A"].width = 38
+    ws.column_dimensions["B"].width = 24
+    ws.column_dimensions["C"].width = 10
+    ws.column_dimensions["D"].width = 10
+    ws.column_dimensions["E"].width = 9
+
+    # legenda
+    rl = riga + 2
+    ws.cell(row=rl, column=1, value="Legenda colori:").font = _BOLD
+    for j, (txt, fill) in enumerate(
+        [("In linea", _VERDE), ("Ritardo lieve", _GIALLO), ("Ritardo grave", _ROSSO)]
+    ):
+        ws.cell(row=rl + 1 + j, column=1, value=txt)
+        ws.cell(row=rl + 1 + j, column=2).fill = fill
+
+
 def _nome_foglio(nome_cantiere: str, suffisso: str) -> str:
     """Excel limita i nomi dei fogli a 31 caratteri e vieta alcuni simboli."""
     pulito = "".join(ch for ch in nome_cantiere if ch not in r'[]:*?/\\')
@@ -153,52 +288,123 @@ def _nome_foglio(nome_cantiere: str, suffisso: str) -> str:
     return base[:31]
 
 
-def genera_template_impresa(percorso: str | Path = "export/modello_impresa.xlsx") -> Path:
-    """Crea un modello Excel vuoto che le imprese possono compilare e inviare.
+# Attività standard (WBS di cantiere) precompilate dal PM nel modello.
+# Ogni impresa tiene le righe pertinenti al proprio lotto, ne aggiunge se serve
+# e compila date / importo / % per ciascuna.
+ATTIVITA_STANDARD = [
+    "Allestimento cantiere e sicurezza",
+    "Scavi e movimenti terra",
+    "Opere strutturali / fondazioni",
+    "Opere edili e murature",
+    "Impianti (elettrico/meccanico/idrico)",
+    "Serramenti e facciate",
+    "Finiture e tinteggiature",
+    "Collaudi, prove e consegna",
+]
 
-    Il file ha le celle dei metadati (Cantiere, Impresa, Lotto, ...) e la
-    tabella delle attività con le intestazioni riconosciute dall'import.
+
+def genera_modello_cantiere(
+    cantiere_nome: str,
+    committente: str = "",
+    cup: str = "",
+    cig: str = "",
+    attivita_standard: list[str] | None = None,
+    righe_extra: int = 6,
+    percorso: str | Path = "export/modello_impresa.xlsx",
+) -> Path:
+    """Crea il modello Excel PRECOMPILATO da consegnare a ogni impresa.
+
+    Il project manager precompila i riferimenti del cantiere e l'elenco delle
+    attività standard (WBS). L'impresa deve solo:
+      * indicare la propria Impresa e il Lotto / Commessa (nelle note in alto);
+      * compilare per ogni attività: date, importo e % di avanzamento;
+      * eventualmente aggiungere righe di attività nelle righe vuote.
+
+    Le celle verdi sono già compilate dal PM, quelle gialle sono da compilare
+    a cura dell'impresa. Il formato è quello riconosciuto automaticamente
+    dall'import, così tutti i cronoprogrammi ricevuti sono standardizzati.
     """
+    attivita_standard = attivita_standard or ATTIVITA_STANDARD
     wb = Workbook()
     ws = wb.active
     ws.title = "Cronoprogramma"
 
-    etichette = [
-        ("Cantiere:", ""),
-        ("Impresa:", ""),
-        ("Lotto:", ""),
-        ("Categoria:", ""),
-        ("Responsabile:", ""),
-        ("Importo lotto:", ""),
-    ]
-    for i, (et, val) in enumerate(etichette, start=1):
-        ws.cell(row=i, column=1, value=et).font = _BOLD
-        ws.cell(row=i, column=2, value=val)
+    ws["A1"] = "CRONOPROGRAMMA DI LOTTO - modello da compilare a cura dell'impresa"
+    ws["A1"].font = Font(bold=True, size=13, color="305496")
 
-    r0 = len(etichette) + 2
-    intestazioni = ["Attività", "Data inizio", "Data fine", "Importo €", "Avanzamento %"]
+    # blocco riferimenti: alcune righe precompilate dal PM, altre da compilare
+    righe_meta = [
+        ("Cantiere:", cantiere_nome, _PRECOMPILATO),
+        ("Committente:", committente, _PRECOMPILATO),
+        ("CUP:", cup, _PRECOMPILATO),
+        ("CIG:", cig, _PRECOMPILATO),
+        ("Impresa:", "", _DA_COMPILARE),
+        ("Lotto / Commessa:", "", _DA_COMPILARE),
+        ("Categoria:", "", _DA_COMPILARE),
+        ("Responsabile:", "", _DA_COMPILARE),
+    ]
+    r = 3
+    for etichetta, valore, fill in righe_meta:
+        ws.cell(row=r, column=1, value=etichetta).font = _BOLD
+        cella = ws.cell(row=r, column=2, value=valore)
+        cella.fill = fill
+        cella.border = _BORDO
+        r += 1
+
+    ws.cell(row=r + 1, column=1,
+            value="Compilare le celle GIALLE. Le celle VERDI sono già impostate dal PM.")
+    ws.cell(row=r + 1, column=1).font = Font(italic=True, color="808080")
+
+    # tabella attività
+    r0 = r + 3
+    intestazioni = ["Attività", "Data inizio", "Data fine", "Importo €",
+                    "Avanzamento %", "Note"]
     for c, testo in enumerate(intestazioni, start=1):
         cell = ws.cell(row=r0, column=c, value=testo)
         cell.fill = _INTESTAZIONE
         cell.font = _BIANCO_BOLD
         cell.border = _BORDO
-    # righe di esempio (da sostituire)
-    esempi = [
-        ("Esempio - Scavi e fondazioni", "2026-01-07", "2026-02-28", 120000, 100),
-        ("Esempio - Struttura", "2026-03-01", "2026-05-31", 300000, 40),
-        ("Esempio - Finiture", "2026-06-01", "2026-07-31", 80000, 0),
-    ]
-    for i, riga in enumerate(esempi, start=1):
-        for c, val in enumerate(riga, start=1):
-            ws.cell(row=r0 + i, column=c, value=val).border = _BORDO
+        cell.alignment = Alignment(horizontal="center")
 
-    for c, larg in enumerate([34, 14, 14, 14, 14], start=1):
+    n_att = len(attivita_standard)
+    for i, nome_att in enumerate(attivita_standard, start=1):
+        rr = r0 + i
+        # nome attività precompilato (verde), resto da compilare (giallo)
+        c_nome = ws.cell(row=rr, column=1, value=nome_att)
+        c_nome.fill = _PRECOMPILATO
+        c_nome.border = _BORDO
+        for c in range(2, len(intestazioni) + 1):
+            cc = ws.cell(row=rr, column=c)
+            cc.fill = _DA_COMPILARE
+            cc.border = _BORDO
+    # righe vuote per attività aggiuntive
+    for i in range(n_att + 1, n_att + 1 + righe_extra):
+        rr = r0 + i
+        for c in range(1, len(intestazioni) + 1):
+            cc = ws.cell(row=rr, column=c)
+            cc.fill = _DA_COMPILARE
+            cc.border = _BORDO
+
+    # suggerimento formati
+    rsugg = r0 + n_att + righe_extra + 2
+    ws.cell(row=rsugg, column=1,
+            value="Formato date: AAAA-MM-GG (es. 2026-03-15). "
+                  "Avanzamento %: 0-100 (lasciare vuoto se non disponibile).")
+    ws.cell(row=rsugg, column=1).font = Font(italic=True, color="808080")
+
+    for c, larg in enumerate([38, 14, 14, 14, 14, 30], start=1):
         ws.column_dimensions[get_column_letter(c)].width = larg
 
     percorso = Path(percorso)
     percorso.parent.mkdir(parents=True, exist_ok=True)
     wb.save(percorso)
     return percorso
+
+
+# alias per retrocompatibilità con il menu/precedenti versioni
+def genera_template_impresa(percorso: str | Path = "export/modello_impresa.xlsx") -> Path:
+    """Genera un modello generico (cantiere da indicare a cura dell'impresa)."""
+    return genera_modello_cantiere(cantiere_nome="", percorso=percorso)
 
 
 def esporta(archivio: Archivio, percorso: str | Path = "export/cronoprogramma.xlsx",
@@ -211,9 +417,11 @@ def esporta(archivio: Archivio, percorso: str | Path = "export/cronoprogramma.xl
         ws = wb.create_sheet("Vuoto")
         ws["A1"] = "Nessun cantiere presente."
     else:
+        riferimento = alla_data or date.today()
         for cantiere in archivio.cantieri:
             stato = analizza_cantiere(cantiere, alla_data)
             _foglio_riepilogo(wb, stato)
+            _foglio_cronoprogramma_generale(wb, stato, riferimento)
             _foglio_gantt(wb, stato)
 
     percorso = Path(percorso)
